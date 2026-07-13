@@ -116,6 +116,7 @@ struct MenuBarView: View {
             Toggle("Listen for slaps", isOn: $appState.listeningEnabled)
             Toggle("Enable NSFW packs", isOn: $appState.nsfwEnabled)
             Toggle("Scale volume with slap force", isOn: $appState.volumeScaling)
+            Toggle("Start SlapMe at login", isOn: $appState.launchAtLogin)
         }
     }
 

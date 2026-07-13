@@ -52,7 +52,11 @@ You should see a **raised hand** in the menu bar. Click it for settings.
 1. Click the hand icon.
 2. If it says **Helper offline**, press **Grant access & start helper…** and enter your Mac password  
    **or** use `./Scripts/start.sh` (password in Terminal, not backgrounded).
-3. When the status shows **Helper online**, slap the laptop lid/case (not too hard!).
+3. That one admin approval also installs a **LaunchDaemon** so the sensor helper starts at boot.
+4. **Start SlapMe at login** is on by default (menu bar app). Settings persist in UserDefaults.
+5. When status shows **Helper online**, slap the laptop lid/case (not too hard!).
+
+Defaults (overridden once you change them): sensitivity **0.20**, cooldown **0.65**, volume **0.7**.
 
 ### Optional: helper on login
 

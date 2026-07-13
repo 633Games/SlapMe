@@ -19,7 +19,15 @@ enum IconTintMode: String, CaseIterable, Identifiable {
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var listeningEnabled: Bool = true
+    @Published var listeningEnabled: Bool {
+        didSet { defaults.set(listeningEnabled, forKey: Keys.listeningEnabled) }
+    }
+    @Published var launchAtLogin: Bool {
+        didSet {
+            defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
+            applyLaunchAtLogin()
+        }
+    }
     @Published var helperConnected: Bool = false
     @Published var lastAmplitude: Double = 0
     @Published var lastSlapAt: Date?
@@ -73,6 +81,8 @@ final class AppState: ObservableObject {
     private var lastPlayAt: Date = .distantPast
 
     private enum Keys {
+        static let listeningEnabled = "listeningEnabled"
+        static let launchAtLogin = "launchAtLogin"
         static let sensitivity = "sensitivity"
         static let cooldown = "cooldown"
         static let volumeScaling = "volumeScaling"
@@ -81,6 +91,8 @@ final class AppState: ObservableObject {
         static let selectedPackID = "selectedPackID"
         static let iconTintMode = "iconTintMode"
         static let iconColorHex = "iconColorHex"
+        static let helperEverConnected = "helperEverConnected"
+        static let settingsVersion = "settingsVersion"
     }
 
     var selectedPack: SoundPack? {
@@ -100,10 +112,21 @@ final class AppState: ObservableObject {
     }
 
     init() {
-        sensitivity = defaults.object(forKey: Keys.sensitivity) as? Double ?? 0.05
+        // One-time bump to the recommended defaults (keeps later user edits).
+        if defaults.integer(forKey: Keys.settingsVersion) < 2 {
+            defaults.set(0.20, forKey: Keys.sensitivity)
+            defaults.set(0.65, forKey: Keys.cooldown)
+            defaults.set(0.7, forKey: Keys.masterVolume)
+            defaults.set(true, forKey: Keys.launchAtLogin)
+            defaults.set(2, forKey: Keys.settingsVersion)
+        }
+
+        listeningEnabled = defaults.object(forKey: Keys.listeningEnabled) as? Bool ?? true
+        launchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? true
+        sensitivity = defaults.object(forKey: Keys.sensitivity) as? Double ?? 0.20
         cooldown = defaults.object(forKey: Keys.cooldown) as? Double ?? 0.65
         volumeScaling = defaults.object(forKey: Keys.volumeScaling) as? Bool ?? true
-        masterVolume = defaults.object(forKey: Keys.masterVolume) as? Double ?? 0.9
+        masterVolume = defaults.object(forKey: Keys.masterVolume) as? Double ?? 0.7
         nsfwEnabled = defaults.bool(forKey: Keys.nsfwEnabled)
         selectedPackID = defaults.string(forKey: Keys.selectedPackID) ?? "sfw.default"
         iconTintMode = IconTintMode(rawValue: defaults.string(forKey: Keys.iconTintMode) ?? "") ?? .solid
@@ -111,13 +134,28 @@ final class AppState: ObservableObject {
 
         Paths.ensureSupportDirectories()
         reloadPacks()
-        showSetupGuide = true
-        setupNote = "Admin access required once to start the sensor helper."
+        let helperKnown = defaults.bool(forKey: Keys.helperEverConnected)
+        showSetupGuide = !helperKnown
+        setupNote = helperKnown
+            ? "Reconnecting to helper…"
+            : "Admin access required once to start the sensor helper."
         startSocketClient()
+        applyLaunchAtLogin()
 
-        // Diagnostics can touch ioreg — never block init / first click.
         Task { @MainActor in
             self.refreshDiagnostics()
+            if self.diagnostics.helperProcessRunning {
+                self.showSetupGuide = false
+                self.setupNote = "Helper running from last session."
+            }
+        }
+    }
+
+    private func applyLaunchAtLogin() {
+        do {
+            try LaunchAtLogin.setEnabled(launchAtLogin)
+        } catch {
+            statusMessage = "Start at login: \(error.localizedDescription)"
         }
     }
 
@@ -155,7 +193,7 @@ final class AppState: ObservableObject {
                     self.refreshDiagnostics()
                     if self.helperConnected || self.diagnostics.helperProcessRunning {
                         self.statusMessage = "Helper started — connecting…"
-                        self.setupNote = "Password accepted. Waiting for socket…"
+                        self.setupNote = "Password accepted — helper installed for reboot. Waiting for socket…"
                         self.showSetupGuide = !self.helperConnected
                     } else {
                         self.statusMessage = "Helper started but not connected yet"
@@ -206,8 +244,13 @@ final class AppState: ObservableObject {
                     ? "Helper connected"
                     : "Helper offline — grant access below"
                 if connected {
+                    self?.defaults.set(true, forKey: Keys.helperEverConnected)
                     self?.showSetupGuide = false
                     self?.setupNote = "Permissions look good."
+                } else if self?.defaults.bool(forKey: Keys.helperEverConnected) == true {
+                    // Keep guide collapsed after first successful setup; user can reopen.
+                    self?.showSetupGuide = false
+                    self?.setupNote = "Helper offline — use Grant access if needed."
                 } else {
                     self?.showSetupGuide = true
                 }
@@ -482,22 +525,15 @@ final class AppState: ObservableObject {
 
         statusMessage = "Removing SlapMe…"
 
-        // Stop helper (best-effort with admin)
-        let stopScript = #"do shell script "pkill -x slapme-helper || true" with administrator privileges"#
+        try? LaunchAtLogin.setEnabled(false)
+
+        // Stop helper + LaunchDaemon (best-effort with admin)
+        let stopScript = #"do shell script "launchctl bootout system /Library/LaunchDaemons/game.sixthree.slapme-helper.plist 2>/dev/null || true; pkill -x slapme-helper || true; rm -f /Library/LaunchDaemons/game.sixthree.slapme-helper.plist; rm -rf '/Library/Application Support/SlapMe'" with administrator privileges"#
         var err: NSDictionary?
         NSAppleScript(source: stopScript)?.executeAndReturnError(&err)
 
         let support = Paths.supportDirectory
         try? FileManager.default.removeItem(at: support)
-
-        let plist = "/Library/LaunchDaemons/game.sixthree.slapme-helper.plist"
-        if FileManager.default.fileExists(atPath: plist) {
-            let unload = """
-            do shell script "launchctl bootout system \(plist) 2>/dev/null || true; rm -f \(plist)" with administrator privileges
-            """
-            var unloadErr: NSDictionary?
-            NSAppleScript(source: unload)?.executeAndReturnError(&unloadErr)
-        }
 
         if let appURL = Bundle.main.bundleURL as URL?,
            appURL.pathExtension == "app" {

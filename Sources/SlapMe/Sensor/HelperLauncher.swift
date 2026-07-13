@@ -58,9 +58,10 @@ enum HelperLauncher {
             candidates.append(exe.appendingPathComponent("slapme-helper"))
         }
         let appURL = Bundle.main.bundleURL
-        // Next to .app (dist/slapme-helper when using Scripts/build.sh)
         candidates.append(appURL.deletingLastPathComponent().appendingPathComponent("slapme-helper"))
         candidates.append(appURL.appendingPathComponent("Contents/MacOS/slapme-helper"))
+        // Persistent install from Grant access
+        candidates.append(URL(fileURLWithPath: "/Library/Application Support/SlapMe/slapme-helper"))
 
         // Common local build output when opened from repo (~/SlapMe or sibling)
         let home = fm.homeDirectoryForCurrentUser
@@ -136,7 +137,7 @@ enum HelperLauncher {
         }
     }
 
-    /// Prompts for admin password via the standard macOS dialog, then starts the helper in the background.
+    /// Prompts for admin once: installs helper + LaunchDaemon (survives reboot) and starts it.
     static func startHelperWithAdminPrompt() throws {
         guard let helper = resolveHelperURL() else {
             throw HelperLaunchError.helperNotFound
@@ -147,26 +148,80 @@ enum HelperLauncher {
 
         Paths.ensureSupportDirectories()
         let socket = Paths.socketPath
-        let logPath = FileManager.default.temporaryDirectory
-            .appendingPathComponent("slapme-helper.log")
-            .path
+        let logPath = "/tmp/slapme-helper.log"
+        let installDir = "/Library/Application Support/SlapMe"
+        let installedHelper = "\(installDir)/slapme-helper"
+        let plistPath = "/Library/LaunchDaemons/game.sixthree.slapme-helper.plist"
+        let stagedPlist = Paths.supportDirectory.appendingPathComponent("slapme-helper.plist")
 
-        // Stop any previous helper (best-effort, also via admin)
-        let stopScript = """
-        do shell script "pkill -x slapme-helper || true" with administrator privileges
+        let plist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+          <key>Label</key>
+          <string>game.sixthree.slapme-helper</string>
+          <key>ProgramArguments</key>
+          <array>
+            <string>\(installedHelper)</string>
+            <string>--socket</string>
+            <string>\(socket)</string>
+          </array>
+          <key>EnvironmentVariables</key>
+          <dict>
+            <key>SLAPME_SOCKET</key>
+            <string>\(socket)</string>
+          </dict>
+          <key>RunAtLoad</key>
+          <true/>
+          <key>KeepAlive</key>
+          <true/>
+          <key>StandardOutPath</key>
+          <string>\(logPath)</string>
+          <key>StandardErrorPath</key>
+          <string>\(logPath)</string>
+        </dict>
+        </plist>
         """
-        _ = runAppleScript(stopScript)
+        do {
+            try plist.write(to: stagedPlist, atomically: true, encoding: .utf8)
+        } catch {
+            throw HelperLaunchError.appleScriptFailed("Could not stage LaunchDaemon plist: \(error.localizedDescription)")
+        }
 
-        let escapedHelper = shellEscape(helper.path)
-        let escapedSocket = shellEscape(socket)
-        let escapedLog = shellEscape(logPath)
+        let cmd = [
+            "mkdir -p \(shellEscape(installDir))",
+            "cp \(shellEscape(helper.path)) \(shellEscape(installedHelper))",
+            "chmod 755 \(shellEscape(installedHelper))",
+            "cp \(shellEscape(stagedPlist.path)) \(shellEscape(plistPath))",
+            "pkill -x slapme-helper || true",
+            "launchctl bootout system \(shellEscape(plistPath)) 2>/dev/null || true",
+            "launchctl bootstrap system \(shellEscape(plistPath))",
+            "launchctl enable system/game.sixthree.slapme-helper",
+            "launchctl kickstart -k system/game.sixthree.slapme-helper",
+        ].joined(separator: " && ")
 
-        // Launch detached under root so CFRunLoop keeps running after osascript returns.
-        let startScript = """
-        do shell script "SLAPME_SOCKET=\(escapedSocket) \(escapedHelper) --socket \(escapedSocket) >> \(escapedLog) 2>&1 & echo $!" with administrator privileges
-        """
+        let script = appleScriptShell(cmd)
+        let result = runAppleScript(script)
+        if let error = result.error {
+            let msg = error[NSLocalizedDescriptionKey] as? String ?? "\(error)"
+            if msg.localizedCaseInsensitiveContains("user canceled")
+                || msg.localizedCaseInsensitiveContains("user cancelled")
+                || (error[NSAppleScript.errorNumber] as? Int) == -128 {
+                throw HelperLaunchError.cancelled
+            }
+            // Fall back to one-shot start if LaunchDaemon install fails.
+            try startHelperOneShot(helper: helper, socket: socket, logPath: logPath)
+            return
+        }
+    }
 
-        let result = runAppleScript(startScript)
+    private static func startHelperOneShot(helper: URL, socket: String, logPath: String) throws {
+        let cmd = [
+            "pkill -x slapme-helper || true",
+            "SLAPME_SOCKET=\(shellEscape(socket)) \(shellEscape(helper.path)) --socket \(shellEscape(socket)) >> \(shellEscape(logPath)) 2>&1 & echo $!",
+        ].joined(separator: "; ")
+        let result = runAppleScript(appleScriptShell(cmd))
         if let error = result.error {
             let msg = error[NSLocalizedDescriptionKey] as? String ?? "\(error)"
             if msg.localizedCaseInsensitiveContains("user canceled")
@@ -176,6 +231,13 @@ enum HelperLauncher {
             }
             throw HelperLaunchError.appleScriptFailed(msg)
         }
+    }
+
+    private static func appleScriptShell(_ command: String) -> String {
+        let escaped = command
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "do shell script \"\(escaped)\" with administrator privileges"
     }
 
     static func copySetupCommandToClipboard() {
