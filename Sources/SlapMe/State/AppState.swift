@@ -20,7 +20,6 @@ enum IconTintMode: String, CaseIterable, Identifiable {
 @MainActor
 final class AppState: ObservableObject {
     @Published var listeningEnabled: Bool = true
-    @Published var muted: Bool = false
     @Published var helperConnected: Bool = false
     @Published var lastAmplitude: Double = 0
     @Published var lastSlapAt: Date?
@@ -225,7 +224,7 @@ final class AppState: ObservableObject {
             helperConnected = true
             statusMessage = "Helper connected"
         case .slap(let amplitude, _):
-            guard listeningEnabled, !muted else { return }
+            guard listeningEnabled else { return }
             guard amplitude >= sensitivity else { return }
             let now = Date()
             guard now.timeIntervalSince(lastPlayAt) >= cooldown else { return }
@@ -289,30 +288,70 @@ final class AppState: ObservableObject {
         }
     }
 
-    enum SoundboardDestination {
-        case soundboard
-        case nsfw
+    struct SoundboardSaveTarget {
+        let packName: String
+        let isNSFW: Bool
 
         var folderComponents: [String] {
-            switch self {
-            case .soundboard: return ["soundboard"]
-            case .nsfw: return ["nsfw", "soundboard"]
+            if isNSFW {
+                return ["nsfw", packName]
             }
+            return [packName]
         }
 
         var packID: String {
-            switch self {
-            case .soundboard: return "custom.soundboard"
-            case .nsfw: return "nsfw.user.soundboard"
+            if isNSFW {
+                return "nsfw.user.\(packName)"
             }
+            // Bundled default still exists as sfw.default; user "default" is custom.default
+            return packName == "default" ? "custom.default" : "custom.\(packName)"
         }
 
         var label: String {
-            switch self {
-            case .soundboard: return "Custom: soundboard"
-            case .nsfw: return "NSFW: soundboard"
-            }
+            isNSFW ? "NSFW: \(packName)" : "Custom: \(packName)"
         }
+    }
+
+    /// Ask where to save; defaults to pack name "default" (Custom, not NSFW).
+    func promptForSaveTarget(defaultPack: String = "default") -> SoundboardSaveTarget? {
+        let alert = NSAlert()
+        alert.messageText = "Save to soundboard pack"
+        alert.informativeText = "Choose a pack folder name. “default” is used if you leave it blank."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let packField = NSTextField(string: defaultPack)
+        packField.frame = NSRect(x: 0, y: 28, width: 260, height: 24)
+        packField.placeholderString = "default"
+
+        let nsfwBox = NSButton(checkboxWithTitle: "Save as NSFW pack", target: nil, action: nil)
+        nsfwBox.state = .off
+        nsfwBox.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
+
+        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 54))
+        accessory.addSubview(packField)
+        accessory.addSubview(nsfwBox)
+        alert.accessoryView = accessory
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return nil }
+
+        var name = packField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { name = "default" }
+        name = sanitizePackName(name)
+        return SoundboardSaveTarget(packName: name, isNSFW: nsfwBox.state == .on)
+    }
+
+    private func sanitizePackName(_ name: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_ "))
+        let filtered = String(name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+        let collapsed = filtered
+            .replacingOccurrences(of: "\\s+", with: "-", options: .regularExpression)
+            .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return collapsed.isEmpty ? "default" : String(collapsed.prefix(40)).lowercased()
     }
 
     func previewSoundboardClip(_ clip: SoundboardClip) {
@@ -322,10 +361,9 @@ final class AppState: ObservableObject {
             soundboardNote = "Preview stopped"
             return
         }
-        muted = false
         audioEngine.previewRemote(url: clip.audioURL, volume: masterVolume)
         previewingClipID = clip.id
-        soundboardNote = "Previewing \(clip.title) — green Add = soundboard, red Add = NSFW"
+        soundboardNote = "Previewing \(clip.title) — Add… to save into a pack"
         statusMessage = "Preview: \(clip.title)"
     }
 
@@ -334,7 +372,17 @@ final class AppState: ObservableObject {
         previewingClipID = nil
     }
 
-    func downloadSoundboardClip(_ clip: SoundboardClip, to destination: SoundboardDestination) {
+    func downloadSoundboardClipAskingWhere(_ clip: SoundboardClip) {
+        guard let target = promptForSaveTarget(defaultPack: "default") else { return }
+        downloadSoundboardClip(clip, to: target)
+    }
+
+    func downloadTopSoundboardResultsAskingWhere(limit: Int = 5) {
+        guard let target = promptForSaveTarget(defaultPack: "default") else { return }
+        downloadTopSoundboardResults(limit: limit, to: target)
+    }
+
+    func downloadSoundboardClip(_ clip: SoundboardClip, to destination: SoundboardSaveTarget) {
         stopSoundboardPreview()
         isDownloadingSoundboard = true
         soundboardNote = "Downloading \(clip.title) → \(destination.label)…"
@@ -347,7 +395,7 @@ final class AppState: ObservableObject {
                 }
                 let url = try await SoundboardImporter.download(clip, into: dir)
                 await MainActor.run {
-                    if destination == .nsfw {
+                    if destination.isNSFW {
                         self.nsfwEnabled = true
                     }
                     self.isDownloadingSoundboard = false
@@ -368,7 +416,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    func downloadTopSoundboardResults(limit: Int = 5, to destination: SoundboardDestination = .soundboard) {
+    func downloadTopSoundboardResults(limit: Int = 5, to destination: SoundboardSaveTarget) {
         stopSoundboardPreview()
         let clips = Array(soundboardResults.prefix(limit))
         guard !clips.isEmpty else { return }
@@ -390,7 +438,7 @@ final class AppState: ObservableObject {
                 }
             }
             await MainActor.run {
-                if destination == .nsfw {
+                if destination.isNSFW {
                     self.nsfwEnabled = true
                 }
                 self.isDownloadingSoundboard = false
@@ -410,6 +458,52 @@ final class AppState: ObservableObject {
     }
 
     func quit() {
+        NSApp.terminate(nil)
+    }
+
+    /// Quit helper, trash the app, and remove Application Support data (with confirmation).
+    func uninstallFromMac() {
+        let alert = NSAlert()
+        alert.messageText = "Remove SlapMe from this Mac?"
+        alert.informativeText = """
+        This will:
+        • Quit SlapMe and stop slapme-helper
+        • Move SlapMe.app to Trash
+        • Delete ~/Library/Application Support/SlapMe (packs & settings)
+        • Remove the optional LaunchDaemon if installed
+
+        Your Mac login password may be required to stop the helper.
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        statusMessage = "Removing SlapMe…"
+
+        // Stop helper (best-effort with admin)
+        let stopScript = #"do shell script "pkill -x slapme-helper || true" with administrator privileges"#
+        var err: NSDictionary?
+        NSAppleScript(source: stopScript)?.executeAndReturnError(&err)
+
+        let support = Paths.supportDirectory
+        try? FileManager.default.removeItem(at: support)
+
+        let plist = "/Library/LaunchDaemons/game.sixthree.slapme-helper.plist"
+        if FileManager.default.fileExists(atPath: plist) {
+            let unload = """
+            do shell script "launchctl bootout system \(plist) 2>/dev/null || true; rm -f \(plist)" with administrator privileges
+            """
+            var unloadErr: NSDictionary?
+            NSAppleScript(source: unload)?.executeAndReturnError(&unloadErr)
+        }
+
+        if let appURL = Bundle.main.bundleURL as URL?,
+           appURL.pathExtension == "app" {
+            try? FileManager.default.trashItem(at: appURL, resultingItemURL: nil)
+        }
+
         NSApp.terminate(nil)
     }
 }

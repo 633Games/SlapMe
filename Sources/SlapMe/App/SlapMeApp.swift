@@ -76,22 +76,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard let appState else { return }
         iconCancellables.removeAll()
 
-        Publishers.CombineLatest(appState.$iconTintMode, appState.$iconColorHex)
+        Publishers.CombineLatest3(appState.$iconTintMode, appState.$iconColorHex, appState.$listeningEnabled)
             .receive(on: RunLoop.main)
-            .sink { [weak self] mode, _ in
-                self?.updatePrideTimer(mode: mode)
+            .sink { [weak self] mode, _, listening in
+                self?.updatePrideTimer(mode: listening ? mode : .solid)
                 self?.refreshStatusItemIcon()
             }
             .store(in: &iconCancellables)
 
-        updatePrideTimer(mode: appState.iconTintMode)
+        updatePrideTimer(mode: appState.listeningEnabled ? appState.iconTintMode : .solid)
     }
 
     @MainActor
     private func updatePrideTimer(mode: IconTintMode) {
         prideTimer?.invalidate()
         prideTimer = nil
-        guard mode == .pride else { return }
+        guard mode == .pride, appState?.listeningEnabled != false else { return }
 
         let timer = Timer(timeInterval: 1.0 / 20.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -106,8 +106,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func refreshStatusItemIcon() {
         guard let button = statusItem?.button else { return }
 
+        let listening = appState?.listeningEnabled ?? true
+        button.alphaValue = listening ? 1.0 : 0.35
+
         let color: NSColor
-        if let state = appState {
+        if !listening {
+            color = NSColor.secondaryLabelColor
+        } else if let state = appState {
             switch state.iconTintMode {
             case .pride:
                 color = StatusItemIcon.prideColor()

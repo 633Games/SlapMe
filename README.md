@@ -82,19 +82,13 @@ NSFW is **folder-based** (not filename tags). Full guide: **[docs/NSFW.md](docs/
 
 ### Soundboard import (MyInstants)
 
-In the popover:
+Open **Sound Downloader** in the popover:
 
 1. Search (e.g. `anime ow`, `yamete`, `slap`).
-2. Hit **Preview** to hear a clip **without saving**.
-3. Hit **Add** (or **Download top 5**) to save into `Custom: soundboard`.
+2. **Preview** to hear a clip without saving.
+3. **Add…** and choose a pack name (defaults to **default**). Optionally tick **Save as NSFW pack**.
 
-Files land in:
-
-```text
-~/Library/Application Support/SlapMe/Packs/soundboard/
-```
-
-Many soundboard uploads are copyrighted. Preview/download only what you’re allowed to use.
+Files land under `~/Library/Application Support/SlapMe/Packs/<name>/` (or `Packs/nsfw/<name>/` for NSFW).
 
 ### Menu bar icon
 

@@ -48,17 +48,9 @@ Or open the folder from the app: **Open custom folder**, then create `nsfw/<pack
 
 ### Move MyInstants downloads into NSFW
 
-Prefer the **red Add** button in the app (saves straight to `Packs/nsfw/soundboard/` and enables NSFW).
+Prefer **Add…** in **Sound Downloader** and tick **Save as NSFW pack** (saves to `Packs/nsfw/<pack>/` and enables the NSFW toggle). Pack name defaults to `default`.
 
-Or move files manually:
-
-```bash
-mkdir -p "$HOME/Library/Application Support/SlapMe/Packs/nsfw/soundboard"
-mv "$HOME/Library/Application Support/SlapMe/Packs/soundboard/"*.mp3 \
-   "$HOME/Library/Application Support/SlapMe/Packs/nsfw/soundboard/"
-```
-
-Then **Enable NSFW packs** → **Reload packs**.
+Or create folders manually:
 
 ---
 

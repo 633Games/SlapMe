@@ -1,12 +1,17 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
+    @State private var showSoundDownloader = false
+    @State private var showCustomise = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 header
+
+                helperStatusSection
 
                 if !appState.helperConnected || appState.showSetupGuide {
                     VStack(alignment: .leading, spacing: 8) {
@@ -20,7 +25,7 @@ struct MenuBarView: View {
                         }
                     }
                 } else {
-                    Button("Permissions / helper status") {
+                    Button("Permissions / helper details") {
                         appState.showSetupGuide = true
                         appState.refreshDiagnostics()
                     }
@@ -29,20 +34,34 @@ struct MenuBarView: View {
                 }
 
                 Divider()
-                listeningSection
-                Divider()
-                packSection
+                packPickerSection
                 Divider()
                 sensitivitySection
                 Divider()
-                iconSection
-                Divider()
-                Button("Drop me a tip") {
-                    appState.openTip()
+
+                disclosureButton(title: "Sound Downloader", isExpanded: $showSoundDownloader)
+                if showSoundDownloader {
+                    soundDownloaderSection
+                        .padding(.leading, 4)
                 }
-                .buttonStyle(.bordered)
+
+                Divider()
+
+                disclosureButton(title: "Customise", isExpanded: $showCustomise)
+                if showCustomise {
+                    customiseSection
+                        .padding(.leading, 4)
+                }
+
+                Divider()
+
                 Button("Quit SlapMe") {
                     appState.quit()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Remove SlapMe from this Mac…", role: .destructive) {
+                    appState.uninstallFromMac()
                 }
                 .buttonStyle(.bordered)
             }
@@ -56,13 +75,26 @@ struct MenuBarView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: 10) {
             Text("SlapMe")
                 .font(.title3.weight(.bold))
+            Spacer(minLength: 8)
+            Button("Drop me a tip") {
+                appState.openTip()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(.orange)
+        }
+    }
+
+    private var helperStatusSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text(appState.statusMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
+
             HStack(spacing: 8) {
                 Circle()
                     .fill(appState.helperConnected ? Color.green : Color.orange)
@@ -80,19 +112,18 @@ struct MenuBarView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-        }
-    }
 
-    private var listeningSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Listening for slaps", isOn: $appState.listeningEnabled)
-            Toggle("Mute audio", isOn: $appState.muted)
-        }
-    }
-
-    private var packSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Listen for slaps", isOn: $appState.listeningEnabled)
             Toggle("Enable NSFW packs", isOn: $appState.nsfwEnabled)
+            Toggle("Scale volume with slap force", isOn: $appState.volumeScaling)
+        }
+    }
+
+    private var packPickerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Sound pack")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
             Picker("Sound pack", selection: $appState.selectedPackID) {
                 ForEach(appState.packs) { pack in
                     Text(pack.name).tag(pack.id)
@@ -103,18 +134,25 @@ struct MenuBarView: View {
                 Button("Reload packs") {
                     appState.reloadPacks()
                 }
-                Button("Open custom folder") {
+                Button("Open packs folder") {
                     appState.openCustomPacksFolder()
                 }
             }
             .font(.caption)
+        }
+    }
 
-            Divider().padding(.vertical, 2)
+    private var sensitivitySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            labeledSlider("Sensitivity (threshold)", value: $appState.sensitivity, range: 0.01...0.35)
+            labeledSlider("Cooldown (s)", value: $appState.cooldown, range: 0.2...2.0)
+            labeledSlider("Volume", value: $appState.masterVolume, range: 0...1)
+        }
+    }
 
-            Text("Soundboard import (MyInstants)")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text("Search, Preview, then Add. Only use clips you’re allowed to.")
+    private var soundDownloaderSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Search MyInstants, preview, then Add to a custom pack (default: “default”).")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -126,7 +164,10 @@ struct MenuBarView: View {
                 Button("Search") {
                     appState.searchSoundboard()
                 }
-                .disabled(appState.isSearchingSoundboard || appState.soundboardQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    appState.isSearchingSoundboard
+                        || appState.soundboardQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
             }
 
             if appState.isSearchingSoundboard || appState.isDownloadingSoundboard {
@@ -143,15 +184,10 @@ struct MenuBarView: View {
 
             if !appState.soundboardResults.isEmpty {
                 HStack {
-                    Button("Top 5 → soundboard") {
-                        appState.downloadTopSoundboardResults(limit: 5, to: .soundboard)
+                    Button("Add top 5…") {
+                        appState.downloadTopSoundboardResultsAskingWhere(limit: 5)
                     }
                     .disabled(appState.isDownloadingSoundboard)
-                    Button("Top 5 → NSFW") {
-                        appState.downloadTopSoundboardResults(limit: 5, to: .nsfw)
-                    }
-                    .disabled(appState.isDownloadingSoundboard)
-                    .foregroundStyle(.red)
                     if appState.previewingClipID != nil {
                         Button("Stop preview") {
                             appState.stopSoundboardPreview()
@@ -160,10 +196,6 @@ struct MenuBarView: View {
                     Spacer()
                 }
                 .font(.caption)
-
-                Text("Green Add = soundboard · Red Add = NSFW pack")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
 
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(appState.soundboardResults.prefix(12)) { clip in
@@ -177,21 +209,11 @@ struct MenuBarView: View {
                             }
                             .font(.caption2)
                             .disabled(appState.isDownloadingSoundboard)
-
-                            Button("Add") {
-                                appState.downloadSoundboardClip(clip, to: .soundboard)
+                            Button("Add…") {
+                                appState.downloadSoundboardClipAskingWhere(clip)
                             }
                             .font(.caption2)
                             .buttonStyle(.borderedProminent)
-                            .tint(.green)
-                            .disabled(appState.isDownloadingSoundboard)
-
-                            Button("Add") {
-                                appState.downloadSoundboardClip(clip, to: .nsfw)
-                            }
-                            .font(.caption2)
-                            .buttonStyle(.borderedProminent)
-                            .tint(.red)
                             .disabled(appState.isDownloadingSoundboard)
                         }
                     }
@@ -200,26 +222,13 @@ struct MenuBarView: View {
         }
     }
 
-    private var sensitivitySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            labeledSlider("Sensitivity (threshold)", value: $appState.sensitivity, range: 0.01...0.35)
-            labeledSlider("Cooldown (s)", value: $appState.cooldown, range: 0.2...2.0)
-            labeledSlider("Volume", value: $appState.masterVolume, range: 0...1)
-            Toggle("Scale volume with slap force", isOn: $appState.volumeScaling)
-        }
-    }
-
-    private var iconSection: some View {
+    private var customiseSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Menu bar icon")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
             IconPreview()
-
-            Text("Solid tint and Pride apply to the menu bar hand (not a template icon).")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
 
             Picker("Tint", selection: $appState.iconTintMode) {
                 ForEach(IconTintMode.allCases) { mode in
@@ -257,6 +266,25 @@ struct MenuBarView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func disclosureButton(title: String, isExpanded: Binding<Bool>) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isExpanded.wrappedValue.toggle()
+            }
+        } label: {
+            HStack {
+                Text(title)
+                    .font(.body.weight(.semibold))
+                Spacer()
+                Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func labeledSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
