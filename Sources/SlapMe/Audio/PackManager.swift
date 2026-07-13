@@ -37,7 +37,7 @@ final class PackManager: ObservableObject {
             result += loadBundled(at: packsRoot, category: .nsfw, nsfwEnabled: nsfwEnabled)
         }
 
-        result += loadCustomPacks()
+        result += loadCustomPacks(nsfwEnabled: nsfwEnabled)
 
         // Deduplicate by id
         var seen = Set<String>()
@@ -87,17 +87,66 @@ final class PackManager: ObservableObject {
         }
     }
 
-    private func loadCustomPacks() -> [SoundPack] {
+    private func loadCustomPacks(nsfwEnabled: Bool) -> [SoundPack] {
         let root = Paths.customPacksDirectory
         let fm = FileManager.default
         var packs: [SoundPack] = []
 
-        // Flat files in Packs/
+        // Flat files in Packs/ → always available as Custom
         let flat = audioFiles(in: root)
         if !flat.isEmpty {
             packs.append(SoundPack(id: "custom.root", name: "Custom: Drop folder", category: .custom, files: flat))
         }
 
+        // Packs/nsfw/<pack>/ → NSFW, gated by the Enable NSFW toggle
+        let nsfwRoot = root.appendingPathComponent("nsfw", isDirectory: true)
+        if nsfwEnabled, let nsfwDirs = try? fm.contentsOfDirectory(
+            at: nsfwRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for dir in nsfwDirs {
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                let files = audioFiles(in: dir)
+                guard !files.isEmpty else { continue }
+                packs.append(
+                    SoundPack(
+                        id: "nsfw.user.\(dir.lastPathComponent)",
+                        name: "NSFW: \(dir.lastPathComponent)",
+                        category: .nsfw,
+                        files: files
+                    )
+                )
+            }
+        }
+
+        // Packs/sfw/<pack>/ → optional SFW user packs
+        let sfwRoot = root.appendingPathComponent("sfw", isDirectory: true)
+        if let sfwDirs = try? fm.contentsOfDirectory(
+            at: sfwRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for dir in sfwDirs {
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                let files = audioFiles(in: dir)
+                guard !files.isEmpty else { continue }
+                packs.append(
+                    SoundPack(
+                        id: "sfw.user.\(dir.lastPathComponent)",
+                        name: "SFW: \(dir.lastPathComponent)",
+                        category: .sfw,
+                        files: files
+                    )
+                )
+            }
+        }
+
+        // Other subfolders under Packs/ (soundboard, etc.) → Custom
+        // Skip reserved folder names used for labeling.
+        let reserved: Set<String> = ["nsfw", "sfw"]
         guard let dirs = try? fm.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -105,6 +154,7 @@ final class PackManager: ObservableObject {
         ) else { return packs }
 
         for dir in dirs {
+            if reserved.contains(dir.lastPathComponent.lowercased()) { continue }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
             let files = audioFiles(in: dir)

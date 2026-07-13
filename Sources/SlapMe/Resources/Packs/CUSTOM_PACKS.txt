@@ -1,2 +1,8 @@
-# Place your custom MP3/WAV/AIFF/M4A files here, or in a subfolder per pack.
-# SlapMe → Reload packs after adding files.
+# Place audio files here, or in a subfolder per pack.
+
+Labeling (see docs/NSFW.md):
+- Packs/nsfw/<name>/  → NSFW (needs “Enable NSFW packs”)
+- Packs/sfw/<name>/   → SFW
+- Packs/<other>/      → Custom (always visible)
+
+Reload packs in SlapMe after adding files.
