@@ -68,9 +68,9 @@ Installs a LaunchDaemon so the sensor helper comes back after reboot (still runs
 
 ### Sound packs
 
-- Bundled SFW placeholders ship in the app.
-- Enable **NSFW packs** in the popover if you want those placeholders.
-- Drop your own `.mp3` / `.wav` / `.aiff` / `.m4a` into:
+- Default pack is a single **slap** hit sound (`SFW: Default`).
+- Add your own packs under Application Support (including NSFW — see [docs/NSFW.md](docs/NSFW.md)).
+- Drop `.mp3` / `.wav` / `.aiff` / `.m4a` into:
 
 ```text
 ~/Library/Application Support/SlapMe/Packs/
@@ -78,7 +78,7 @@ Installs a LaunchDaemon so the sensor helper comes back after reboot (still runs
 
 Then **Reload packs**. Prefer packs you own or have rights to use.
 
-NSFW is **folder-based** (not filename tags). Full guide: **[docs/NSFW.md](docs/NSFW.md)**.
+NSFW is **folder-based** (not filename tags). Full guide: **[docs/NSFW.md](docs/NSFW.md)**. There is **no** bundled NSFW pack — enable NSFW after you add your own under `Packs/nsfw/`.
 
 ### Soundboard import (MyInstants)
 

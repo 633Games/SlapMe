@@ -9,9 +9,8 @@ A pack is NSFW only because of **where you put the folder**.
 
 | Pack type | How it’s labeled | Shown when |
 |---|---|---|
-| **Bundled NSFW** | Lives under `…/Packs/nsfw/<pack-name>/` in the app resources | **Enable NSFW packs** is on |
 | **User NSFW** | Lives under `~/Library/Application Support/SlapMe/Packs/nsfw/<pack-name>/` | **Enable NSFW packs** is on |
-| **SFW** | Under `…/Packs/sfw/<pack-name>/` (bundled or in Application Support) | Always |
+| **SFW (default)** | Bundled `sfw/default/slap.wav` plus optional `…/Packs/sfw/<pack>/` | Always |
 | **Custom** | Any other folder under `…/Packs/` (e.g. `soundboard/`) | Always (not gated) |
 
 In the popover, NSFW packs appear as **`NSFW: <pack-name>`**.  
@@ -63,16 +62,23 @@ Then **Enable NSFW packs** → **Reload packs**.
 
 ---
 
-## Bundled NSFW (developers)
+## Bundled audio
 
-Shipped placeholders live here before build:
+SlapMe ships **one** default SFW slap clip only:
 
 ```text
-Sources/SlapMe/Resources/Packs/nsfw/default/*.wav
-Sources/SlapMe/Resources/Packs/sfw/default/*.wav
+Sources/SlapMe/Resources/Packs/sfw/default/slap.wav
 ```
 
-Folder name under `nsfw/` or `sfw/` becomes the pack name (`default` → `NSFW: Default`).
+There is **no** default NSFW pack in the repo or app. NSFW is entirely user-provided under Application Support (or MyInstants **red Add**).
+
+Developers who want a bundled NSFW pack for testing can add:
+
+```text
+Sources/SlapMe/Resources/Packs/nsfw/<pack-name>/*.wav
+```
+
+…then rebuild. Folder name under `nsfw/` becomes the pack name.
 
 ---
 
