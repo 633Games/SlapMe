@@ -78,6 +78,8 @@ Installs a LaunchDaemon so the sensor helper comes back after reboot (still runs
 
 Then **Reload packs**. Prefer packs you own or have rights to use.
 
+NSFW is **folder-based** (not filename tags). Full guide: **[docs/NSFW.md](docs/NSFW.md)**.
+
 ### Soundboard import (MyInstants)
 
 In the popover:
