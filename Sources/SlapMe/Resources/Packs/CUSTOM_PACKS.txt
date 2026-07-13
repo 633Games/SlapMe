@@ -1,0 +1,2 @@
+# Place your custom MP3/WAV/AIFF/M4A files here, or in a subfolder per pack.
+# SlapMe → Reload packs after adding files.

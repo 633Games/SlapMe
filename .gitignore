@@ -1,0 +1,13 @@
+.DS_Store
+.build/
+.swiftpm/
+Packages/
+*.xcodeproj/xcuserdata/
+*.xcuserdata/
+DerivedData/
+SlapMe.app/
+dist/
+*.sock
+.venv/
+__pycache__/
+*.pyc
