@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="168" viewBox="0 0 780 168" role="img" aria-label="SlapMe">
+  <defs>
+    <linearGradient id="rainbow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#E40303"/>
+      <stop offset="16%" stop-color="#FF8C00"/>
+      <stop offset="33%" stop-color="#FFED00"/>
+      <stop offset="50%" stop-color="#008026"/>
+      <stop offset="66%" stop-color="#24408E"/>
+      <stop offset="83%" stop-color="#732982"/>
+      <stop offset="100%" stop-color="#FF69B4"/>
+    </linearGradient>
+  </defs>
+  <rect width="780" height="168" fill="#0d1117"/>
+  <g fill="url(#rainbow)" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="15" font-weight="700" xml:space="preserve">
+    <text x="24" y="28">  ˆˆˆˆˆˆˆWˆˆW      ˆˆˆˆˆW ˆˆˆˆˆˆW ˆˆˆW   ˆˆˆWˆˆˆˆˆˆˆW</text>
+    <text x="24" y="48">  ˆˆTPPPP]ˆˆQ     ˆˆTPPˆˆWˆˆTPPˆˆWˆˆˆˆW ˆˆˆˆQˆˆTPPPP]</text>
+    <text x="24" y="68">  ˆˆˆˆˆˆˆWˆˆQ     ˆˆˆˆˆˆˆQˆˆˆˆˆˆT]ˆˆTˆˆˆˆTˆˆQˆˆˆˆˆW  </text>
+    <text x="24" y="88">  ZPPPPˆˆQˆˆQ     ˆˆTPPˆˆQˆˆTPPP] ˆˆQZˆˆT]ˆˆQˆˆTPP]  </text>
+    <text x="24" y="108">  ˆˆˆˆˆˆˆQˆˆˆˆˆˆˆWˆˆQ  ˆˆQˆˆQ     ˆˆQ ZP] ˆˆQˆˆˆˆˆˆˆW</text>
+    <text x="24" y="128">  ZPPPPPP]ZPPPPPP]ZP]  ZP]ZP]     ZP]     ZP]ZPPPPPP]</text>
+    <text x="24" y="152" font-size="14" font-weight="600">           p(?´#`?)oa  slap ’ anime sounds</text>
+  </g>
+</svg>

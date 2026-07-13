@@ -1,12 +1,6 @@
-```text
-  ███████╗██╗      █████╗ ██████╗ ███╗   ███╗███████╗
-  ██╔════╝██║     ██╔══██╗██╔══██╗████╗ ████║██╔════╝
-  ███████╗██║     ███████║██████╔╝██╔████╔██║█████╗
-  ╚════██║██║     ██╔══██║██╔═══╝ ██║╚██╔╝██║██╔══╝
-  ███████║███████╗██║  ██║██║     ██║ ╚═╝ ██║███████╗
-  ╚══════╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝     ╚═╝╚══════╝
-           ╰(✿´⌣`✿)╯♡  slap → anime sounds
-```
+<p align="center">
+  <img src="docs/slapme-banner.svg" alt="SLAPME — slap → anime sounds" width="780" />
+</p>
 
 # SlapMe
 
@@ -77,8 +71,6 @@ No output = this Mac can’t slap-detect. Sadge.
 Add your own sounds with the **download** icon (MyInstants), or drop files in:
 
 `~/Library/Application Support/SlapMe/Packs/`
-
-NSFW packs go in `Packs/nsfw/<name>/` — details in [docs/NSFW.md](docs/NSFW.md).
 
 ---
 
