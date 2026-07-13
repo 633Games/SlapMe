@@ -3,62 +3,63 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
-    @State private var showSoundDownloader = false
-    @State private var showCustomise = false
+    @State private var activePanel: ActivePanel = .downloader
+    /// When set, show the in-popover “new pack” form (not a separate window).
+    @State private var pendingNewPack: PendingNewPack?
+
+    private enum ActivePanel {
+        case none
+        case settings
+        case customise
+        case downloader
+    }
+
+    private enum PendingNewPack {
+        case clip(SoundboardClip)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 header
 
-                helperStatusSection
+                listenButton
 
-                if !appState.helperConnected || appState.showSetupGuide {
-                    VStack(alignment: .leading, spacing: 8) {
-                        SetupGuideView()
-                        if appState.helperConnected {
-                            Button("Hide setup guide") {
-                                appState.showSetupGuide = false
-                            }
-                            .font(.caption)
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                } else {
-                    Button("Permissions / helper details") {
-                        appState.showSetupGuide = true
-                        appState.refreshDiagnostics()
-                    }
-                    .font(.caption)
-                    .buttonStyle(.borderless)
+                if activePanel == .settings {
+                    settingsSection
+                } else if activePanel == .customise {
+                    customiseSection
                 }
 
                 Divider()
                 packPickerSection
-                Divider()
-                sensitivitySection
-                Divider()
 
-                disclosureButton(title: "Sound Downloader", isExpanded: $showSoundDownloader)
-                if showSoundDownloader {
+                if activePanel == .downloader {
                     soundDownloaderSection
-                        .padding(.leading, 4)
+                        .padding(.top, 4)
                 }
 
                 Divider()
 
-                disclosureButton(title: "Customise", isExpanded: $showCustomise)
-                if showCustomise {
-                    customiseSection
-                        .padding(.leading, 4)
-                }
-
-                Divider()
-
-                Button("Quit SlapMe") {
-                    appState.quit()
-                }
-                .buttonStyle(.bordered)
+                Text("╰(✿´⌣`✿)╯♡")
+                    .font(.title2.bold())
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.90, green: 0.10, blue: 0.22),
+                                Color(red: 1.00, green: 0.55, blue: 0.00),
+                                Color(red: 1.00, green: 0.90, blue: 0.10),
+                                Color(red: 0.15, green: 0.75, blue: 0.30),
+                                Color(red: 0.15, green: 0.55, blue: 0.95),
+                                Color(red: 0.48, green: 0.20, blue: 0.85),
+                                Color(red: 0.90, green: 0.30, blue: 0.70),
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
 
                 Button("Remove SlapMe from this Mac…", role: .destructive) {
                     appState.uninstallFromMac()
@@ -75,9 +76,19 @@ struct MenuBarView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 8) {
             Text("SlapMe")
                 .font(.title3.weight(.bold))
+            panelIconButton(
+                systemName: "gearshape",
+                panel: .settings,
+                help: "Settings"
+            )
+            panelIconButton(
+                systemName: "paintbrush",
+                panel: .customise,
+                help: "Customise"
+            )
             Spacer(minLength: 8)
             Button("Drop me a tip") {
                 appState.openTip()
@@ -85,15 +96,56 @@ struct MenuBarView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .tint(.orange)
+            Button("Quit") {
+                appState.quit()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
     }
 
-    private var helperStatusSection: some View {
+    private var listenButton: some View {
+        Button {
+            appState.listeningEnabled.toggle()
+        } label: {
+            HStack {
+                Image(systemName: appState.listeningEnabled ? "hand.raised.fill" : "hand.raised.slash")
+                Text(appState.listeningEnabled ? "Listening for slaps" : "Listen for slaps")
+                Spacer(minLength: 4)
+                Text(appState.listeningEnabled ? "On" : "Off")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(appState.listeningEnabled ? Color.green : Color.secondary)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .tint(appState.listeningEnabled ? .green : nil)
+        .controlSize(.large)
+    }
+
+    private func panelIconButton(systemName: String, panel: ActivePanel, help: String) -> some View {
+        let selected = activePanel == panel
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                activePanel = selected ? .none : panel
+            }
+        } label: {
+            Image(systemName: selected ? "\(systemName).fill" : systemName)
+                .foregroundStyle(selected ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var settingsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(appState.statusMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 8) {
                 Circle()
@@ -113,10 +165,31 @@ struct MenuBarView: View {
                 }
             }
 
-            Toggle("Listen for slaps", isOn: $appState.listeningEnabled)
-            Toggle("Enable NSFW packs", isOn: $appState.nsfwEnabled)
+            if !appState.helperConnected || appState.showSetupGuide {
+                SetupGuideView()
+                if appState.helperConnected {
+                    Button("Hide setup guide") {
+                        appState.showSetupGuide = false
+                    }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+                }
+            } else {
+                Button("Permissions / helper details") {
+                    appState.showSetupGuide = true
+                    appState.refreshDiagnostics()
+                }
+                .font(.caption)
+                .buttonStyle(.borderless)
+            }
+
+            Divider()
+
             Toggle("Scale volume with slap force", isOn: $appState.volumeScaling)
             Toggle("Start SlapMe at login", isOn: $appState.launchAtLogin)
+            labeledSlider("Sensitivity (threshold)", value: $appState.sensitivity, range: 0.01...0.35)
+            labeledSlider("Cooldown (s)", value: $appState.cooldown, range: 0.2...2.0)
+            labeledSlider("Volume", value: $appState.masterVolume, range: 0...1)
         }
     }
 
@@ -125,35 +198,41 @@ struct MenuBarView: View {
             Text("Sound pack")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Picker("Sound pack", selection: $appState.selectedPackID) {
-                ForEach(appState.packs) { pack in
-                    Text(pack.name).tag(pack.id)
+            HStack(spacing: 6) {
+                Picker("Sound pack", selection: $appState.selectedPackID) {
+                    ForEach(appState.packs) { pack in
+                        Text(pack.name).tag(pack.id)
+                    }
                 }
-            }
-            .labelsHidden()
-            HStack {
-                Button("Reload packs") {
+                .labelsHidden()
+                Button {
                     appState.reloadPacks()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
-                Button("Open packs folder") {
+                .buttonStyle(.borderless)
+                .help("Reload packs")
+                .accessibilityLabel("Reload packs")
+                Button {
                     appState.openCustomPacksFolder()
+                } label: {
+                    Image(systemName: "folder")
                 }
+                .buttonStyle(.borderless)
+                .help("Open packs folder")
+                .accessibilityLabel("Open packs folder")
+                panelIconButton(
+                    systemName: "arrow.down.circle",
+                    panel: .downloader,
+                    help: "Sound Downloader"
+                )
             }
-            .font(.caption)
-        }
-    }
-
-    private var sensitivitySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            labeledSlider("Sensitivity (threshold)", value: $appState.sensitivity, range: 0.01...0.35)
-            labeledSlider("Cooldown (s)", value: $appState.cooldown, range: 0.2...2.0)
-            labeledSlider("Volume", value: $appState.masterVolume, range: 0...1)
         }
     }
 
     private var soundDownloaderSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Search MyInstants, preview, then Add to a custom pack (default: “default”).")
+            Text("Search MyInstants, preview, then Add and pick a pack from the menu.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -171,6 +250,10 @@ struct MenuBarView: View {
                 )
             }
 
+            if pendingNewPack != nil {
+                newPackForm
+            }
+
             if appState.isSearchingSoundboard || appState.isDownloadingSoundboard {
                 ProgressView()
                     .controlSize(.small)
@@ -183,23 +266,9 @@ struct MenuBarView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if !appState.soundboardResults.isEmpty {
-                HStack {
-                    Button("Add top 5…") {
-                        appState.downloadTopSoundboardResultsAskingWhere(limit: 5)
-                    }
-                    .disabled(appState.isDownloadingSoundboard)
-                    if appState.previewingClipID != nil {
-                        Button("Stop preview") {
-                            appState.stopSoundboardPreview()
-                        }
-                    }
-                    Spacer()
-                }
-                .font(.caption)
-
+            if !appState.visibleSoundboardClips.isEmpty || !appState.soundboardResults.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(appState.soundboardResults.prefix(12)) { clip in
+                    ForEach(appState.visibleSoundboardClips) { clip in
                         HStack(spacing: 6) {
                             Text(clip.title)
                                 .font(.caption)
@@ -210,17 +279,97 @@ struct MenuBarView: View {
                             }
                             .font(.caption2)
                             .disabled(appState.isDownloadingSoundboard)
-                            Button("Add…") {
-                                appState.downloadSoundboardClipAskingWhere(clip)
+
+                            addDestinationMenu(title: "Add") {
+                                pendingNewPack = .clip(clip)
+                            } onPick: { destination in
+                                appState.downloadSoundboardClip(clip, to: destination)
                             }
                             .font(.caption2)
-                            .buttonStyle(.borderedProminent)
                             .disabled(appState.isDownloadingSoundboard)
                         }
                     }
                 }
+
+                HStack {
+                    Button {
+                        appState.soundboardGoToAdjacentPage(-1)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .disabled(appState.isSearchingSoundboard || !appState.soundboardCanGoPrevious)
+
+                    Text("Page \(appState.soundboardPage)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 64)
+
+                    Button {
+                        appState.soundboardGoToAdjacentPage(1)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .disabled(appState.isSearchingSoundboard || !appState.soundboardCanGoNext)
+
+                    Spacer()
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
             }
         }
+    }
+
+    private var newPackForm: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("New pack")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextField("Pack name", text: $appState.newPackName)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                Button("Cancel") {
+                    pendingNewPack = nil
+                }
+                Button("Save here") {
+                    confirmNewPack()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(appState.isDownloadingSoundboard)
+                Spacer()
+            }
+            .font(.caption)
+        }
+        .padding(8)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private func addDestinationMenu(
+        title: String,
+        onNewPack: @escaping () -> Void,
+        onPick: @escaping (AppState.SoundboardSaveTarget) -> Void
+    ) -> some View {
+        Menu {
+            ForEach(appState.menuSaveDestinations) { destination in
+                Button(destination.title) {
+                    onPick(destination)
+                }
+            }
+            Divider()
+            Button("+ New pack…") {
+                onNewPack()
+            }
+        } label: {
+            Text(title)
+        }
+    }
+
+    private func confirmNewPack() {
+        let destination = appState.makeNewPackTarget()
+        if case .clip(let clip) = pendingNewPack {
+            appState.downloadSoundboardClip(clip, to: destination)
+        }
+        pendingNewPack = nil
     }
 
     private var customiseSection: some View {
@@ -267,25 +416,6 @@ struct MenuBarView: View {
                     .foregroundStyle(.secondary)
             }
         }
-    }
-
-    private func disclosureButton(title: String, isExpanded: Binding<Bool>) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isExpanded.wrappedValue.toggle()
-            }
-        } label: {
-            HStack {
-                Text(title)
-                    .font(.body.weight(.semibold))
-                Spacer()
-                Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private func labeledSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {

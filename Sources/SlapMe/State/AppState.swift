@@ -68,10 +68,17 @@ final class AppState: ObservableObject {
     @Published var packs: [SoundPack] = []
     @Published var soundboardQuery: String = "anime ow"
     @Published var soundboardResults: [SoundboardClip] = []
+    /// Visible page within the current search batch (5 clips each).
+    @Published var soundboardPage: Int = 1
+    /// MyInstants search page currently loaded into `soundboardResults`.
+    @Published var soundboardSitePage: Int = 1
+    @Published var soundboardSiteHasMore: Bool = false
     @Published var isSearchingSoundboard = false
     @Published var isDownloadingSoundboard = false
     @Published var soundboardNote: String?
     @Published var previewingClipID: String?
+    @Published var newPackName: String = "my-pack"
+    @Published var newPackIsNSFW: Bool = false
 
     let packManager = PackManager()
     let audioEngine = AudioEngine()
@@ -100,7 +107,8 @@ final class AppState: ObservableObject {
     }
 
     func reloadPacks() {
-        packManager.reload(nsfwEnabled: nsfwEnabled)
+        // NSFW packs appear whenever Packs/nsfw/… folders exist (no UI gate).
+        packManager.reload(nsfwEnabled: true)
         packs = packManager.packs
         if !packs.contains(where: { $0.id == selectedPackID }) {
             selectedPackID = packManager.defaultPackID
@@ -119,6 +127,10 @@ final class AppState: ObservableObject {
             defaults.set(0.7, forKey: Keys.masterVolume)
             defaults.set(true, forKey: Keys.launchAtLogin)
             defaults.set(2, forKey: Keys.settingsVersion)
+        }
+        if defaults.integer(forKey: Keys.settingsVersion) < 3 {
+            defaults.set(true, forKey: Keys.volumeScaling)
+            defaults.set(3, forKey: Keys.settingsVersion)
         }
 
         listeningEnabled = defaults.object(forKey: Keys.listeningEnabled) as? Bool ?? true
@@ -306,20 +318,51 @@ final class AppState: ObservableObject {
         NSWorkspace.shared.open(Paths.customPacksDirectory)
     }
 
-    func searchSoundboard() {
+    static let soundboardPageSize = 5
+
+    var visibleSoundboardClips: [SoundboardClip] {
+        let start = (soundboardPage - 1) * Self.soundboardPageSize
+        guard start < soundboardResults.count else { return [] }
+        return Array(soundboardResults[start..<min(start + Self.soundboardPageSize, soundboardResults.count)])
+    }
+
+    var soundboardLocalPageCount: Int {
+        max(1, Int(ceil(Double(soundboardResults.count) / Double(Self.soundboardPageSize))))
+    }
+
+    var soundboardCanGoPrevious: Bool {
+        soundboardPage > 1 || soundboardSitePage > 1
+    }
+
+    var soundboardCanGoNext: Bool {
+        soundboardPage < soundboardLocalPageCount || soundboardSiteHasMore
+    }
+
+    func searchSoundboard(sitePage: Int = 1, jumpToLastLocalPage: Bool = false) {
         stopSoundboardPreview()
         let query = soundboardQuery
+        let site = max(1, sitePage)
         isSearchingSoundboard = true
-        soundboardNote = "Searching MyInstants…"
+        soundboardNote = site == 1 ? "Searching MyInstants…" : "Loading more…"
         soundboardResults = []
+        soundboardPage = 1
+        soundboardSiteHasMore = false
 
         Task {
             do {
-                let clips = try await SoundboardImporter.search(query: query)
+                let result = try await SoundboardImporter.search(query: query, page: site)
                 await MainActor.run {
-                    self.soundboardResults = clips
+                    self.soundboardResults = result.clips
+                    self.soundboardSitePage = result.page
+                    self.soundboardSiteHasMore = result.hasMore
+                    let localCount = max(1, Int(ceil(Double(result.clips.count) / Double(Self.soundboardPageSize))))
+                    self.soundboardPage = jumpToLastLocalPage ? localCount : 1
                     self.isSearchingSoundboard = false
-                    self.soundboardNote = "Found \(clips.count) clips. You must have rights to use them."
+                    if result.clips.isEmpty {
+                        self.soundboardNote = "No more clips."
+                    } else {
+                        self.soundboardNote = "\(result.clips.count) clips — 5 per page. You must have rights to use them."
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -331,70 +374,135 @@ final class AppState: ObservableObject {
         }
     }
 
-    struct SoundboardSaveTarget {
+    func soundboardGoToAdjacentPage(_ delta: Int) {
+        if delta < 0 {
+            if soundboardPage > 1 {
+                soundboardPage -= 1
+                stopSoundboardPreview()
+            } else if soundboardSitePage > 1 {
+                searchSoundboard(sitePage: soundboardSitePage - 1, jumpToLastLocalPage: true)
+            }
+            return
+        }
+        if soundboardPage < soundboardLocalPageCount {
+            soundboardPage += 1
+            stopSoundboardPreview()
+        } else if soundboardSiteHasMore {
+            searchSoundboard(sitePage: soundboardSitePage + 1)
+        }
+    }
+
+    struct SoundboardSaveTarget: Identifiable, Hashable {
+        static let sfwDefaultID = "sfw.default.save"
+        static let newPackID = "__new__"
+
+        let id: String
         let packName: String
         let isNSFW: Bool
+        let title: String
 
         var folderComponents: [String] {
             if isNSFW {
                 return ["nsfw", packName]
             }
+            if id == Self.sfwDefaultID {
+                return ["sfw", "default"]
+            }
+            if id.hasPrefix("sfw.") {
+                return ["sfw", packName]
+            }
             return [packName]
         }
 
-        var packID: String {
+        var packIDAfterSave: String {
             if isNSFW {
                 return "nsfw.user.\(packName)"
             }
-            // Bundled default still exists as sfw.default; user "default" is custom.default
-            return packName == "default" ? "custom.default" : "custom.\(packName)"
+            if id == Self.sfwDefaultID {
+                return "sfw.user.default"
+            }
+            if id.hasPrefix("sfw.") {
+                return "sfw.user.\(packName)"
+            }
+            return "custom.\(packName)"
         }
 
-        var label: String {
-            isNSFW ? "NSFW: \(packName)" : "Custom: \(packName)"
+        static var sfwDefault: SoundboardSaveTarget {
+            SoundboardSaveTarget(
+                id: sfwDefaultID,
+                packName: "default",
+                isNSFW: false,
+                title: "Default"
+            )
+        }
+
+        static var newPackOption: SoundboardSaveTarget {
+            SoundboardSaveTarget(
+                id: newPackID,
+                packName: "new",
+                isNSFW: false,
+                title: "+ New pack…"
+            )
         }
     }
 
-    /// Ask where to save; defaults to pack name "default" (Custom, not NSFW).
-    func promptForSaveTarget(defaultPack: String = "default") -> SoundboardSaveTarget? {
-        let alert = NSAlert()
-        alert.messageText = "Save to soundboard pack"
-        alert.informativeText = "Choose a pack folder name. “default” is used if you leave it blank."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
+    /// Pack destinations for the Add menu (SFW Default first). Excludes “new pack”.
+    var menuSaveDestinations: [SoundboardSaveTarget] {
+        var options: [SoundboardSaveTarget] = [.sfwDefault]
 
-        let packField = NSTextField(string: defaultPack)
-        packField.frame = NSRect(x: 0, y: 28, width: 260, height: 24)
-        packField.placeholderString = "default"
+        for pack in packs {
+            if pack.id == "sfw.default" || pack.id == "sfw.user.default" { continue }
 
-        let nsfwBox = NSButton(checkboxWithTitle: "Save as NSFW pack", target: nil, action: nil)
-        nsfwBox.state = .off
-        nsfwBox.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
+            let isNSFW = pack.category == .nsfw
+            let name: String
+            if pack.id.hasPrefix("nsfw.user.") {
+                name = String(pack.id.dropFirst("nsfw.user.".count))
+            } else if pack.id.hasPrefix("sfw.user.") {
+                name = String(pack.id.dropFirst("sfw.user.".count))
+            } else if pack.id.hasPrefix("custom.") {
+                name = String(pack.id.dropFirst("custom.".count))
+            } else if pack.id.hasPrefix("sfw.") {
+                name = String(pack.id.dropFirst("sfw.".count))
+            } else if pack.id.hasPrefix("nsfw.") {
+                name = String(pack.id.dropFirst("nsfw.".count))
+            } else {
+                name = pack.id
+            }
 
-        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 54))
-        accessory.addSubview(packField)
-        accessory.addSubview(nsfwBox)
-        alert.accessoryView = accessory
+            options.append(
+                SoundboardSaveTarget(
+                    id: pack.id,
+                    packName: name,
+                    isNSFW: isNSFW,
+                    title: pack.name
+                )
+            )
+        }
 
-        NSApp.activate(ignoringOtherApps: true)
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return nil }
+        return options
+    }
 
-        var name = packField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if name.isEmpty { name = "default" }
-        name = sanitizePackName(name)
-        return SoundboardSaveTarget(packName: name, isNSFW: nsfwBox.state == .on)
+    func makeNewPackTarget() -> SoundboardSaveTarget {
+        var name = sanitizePackName(newPackName)
+        if name.isEmpty { name = "my-pack" }
+        let nsfw = nsfwEnabled && newPackIsNSFW
+        return SoundboardSaveTarget(
+            id: SoundboardSaveTarget.newPackID,
+            packName: name,
+            isNSFW: nsfw,
+            title: nsfw ? "NSFW: \(name)" : "Custom: \(name)"
+        )
     }
 
     private func sanitizePackName(_ name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_ "))
-        let filtered = String(name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+        let filtered = String(trimmed.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
         let collapsed = filtered
             .replacingOccurrences(of: "\\s+", with: "-", options: .regularExpression)
             .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return collapsed.isEmpty ? "default" : String(collapsed.prefix(40)).lowercased()
+        return String(collapsed.prefix(40)).lowercased()
     }
 
     func previewSoundboardClip(_ clip: SoundboardClip) {
@@ -406,7 +514,7 @@ final class AppState: ObservableObject {
         }
         audioEngine.previewRemote(url: clip.audioURL, volume: masterVolume)
         previewingClipID = clip.id
-        soundboardNote = "Previewing \(clip.title) — Add… to save into a pack"
+        soundboardNote = "Previewing \(clip.title)"
         statusMessage = "Preview: \(clip.title)"
     }
 
@@ -415,20 +523,10 @@ final class AppState: ObservableObject {
         previewingClipID = nil
     }
 
-    func downloadSoundboardClipAskingWhere(_ clip: SoundboardClip) {
-        guard let target = promptForSaveTarget(defaultPack: "default") else { return }
-        downloadSoundboardClip(clip, to: target)
-    }
-
-    func downloadTopSoundboardResultsAskingWhere(limit: Int = 5) {
-        guard let target = promptForSaveTarget(defaultPack: "default") else { return }
-        downloadTopSoundboardResults(limit: limit, to: target)
-    }
-
     func downloadSoundboardClip(_ clip: SoundboardClip, to destination: SoundboardSaveTarget) {
         stopSoundboardPreview()
         isDownloadingSoundboard = true
-        soundboardNote = "Downloading \(clip.title) → \(destination.label)…"
+        soundboardNote = "Downloading \(clip.title) → \(destination.title)…"
 
         Task {
             do {
@@ -438,16 +536,17 @@ final class AppState: ObservableObject {
                 }
                 let url = try await SoundboardImporter.download(clip, into: dir)
                 await MainActor.run {
-                    if destination.isNSFW {
-                        self.nsfwEnabled = true
-                    }
                     self.isDownloadingSoundboard = false
                     self.reloadPacks()
-                    if self.packs.contains(where: { $0.id == destination.packID }) {
-                        self.selectedPackID = destination.packID
+                    let preferID = destination.packIDAfterSave
+                    if self.packs.contains(where: { $0.id == preferID }) {
+                        self.selectedPackID = preferID
+                    } else if destination.id == SoundboardSaveTarget.sfwDefaultID,
+                              self.packs.contains(where: { $0.id == "sfw.default" }) {
+                        self.selectedPackID = "sfw.default"
                     }
-                    self.soundboardNote = "Saved \(url.lastPathComponent) → \(destination.label)"
-                    self.statusMessage = "Imported \(clip.title) → \(destination.label)"
+                    self.soundboardNote = "Saved \(url.lastPathComponent) → \(destination.title)"
+                    self.statusMessage = "Imported \(clip.title) → \(destination.title)"
                 }
             } catch {
                 await MainActor.run {
@@ -455,42 +554,6 @@ final class AppState: ObservableObject {
                     self.soundboardNote = error.localizedDescription
                     self.statusMessage = error.localizedDescription
                 }
-            }
-        }
-    }
-
-    func downloadTopSoundboardResults(limit: Int = 5, to destination: SoundboardSaveTarget) {
-        stopSoundboardPreview()
-        let clips = Array(soundboardResults.prefix(limit))
-        guard !clips.isEmpty else { return }
-        isDownloadingSoundboard = true
-        soundboardNote = "Downloading \(clips.count) clips → \(destination.label)…"
-
-        Task {
-            var ok = 0
-            var dir = Paths.customPacksDirectory
-            for component in destination.folderComponents {
-                dir = dir.appendingPathComponent(component, isDirectory: true)
-            }
-            for clip in clips {
-                do {
-                    _ = try await SoundboardImporter.download(clip, into: dir)
-                    ok += 1
-                } catch {
-                    continue
-                }
-            }
-            await MainActor.run {
-                if destination.isNSFW {
-                    self.nsfwEnabled = true
-                }
-                self.isDownloadingSoundboard = false
-                self.reloadPacks()
-                if self.packs.contains(where: { $0.id == destination.packID }) {
-                    self.selectedPackID = destination.packID
-                }
-                self.soundboardNote = "Imported \(ok)/\(clips.count) into \(destination.label)"
-                self.statusMessage = self.soundboardNote ?? ""
             }
         }
     }

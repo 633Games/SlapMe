@@ -26,18 +26,30 @@ enum SoundboardError: LocalizedError {
 }
 
 enum SoundboardImporter {
-    private static let searchBase = "https://www.myinstants.com/en/search/?name="
     private static let mediaBase = "https://www.myinstants.com/media/sounds/"
     private static let userAgent = "SlapMe/1.0 (macOS; soundboard importer; +https://ko-fi.com/633games)"
+    /// MyInstants serves ~this many hits per search page when results remain.
+    private static let fullPageThreshold = 15
 
-    static func search(query: String) async throws -> [SoundboardClip] {
+    struct SearchPage {
+        let clips: [SoundboardClip]
+        let page: Int
+        let hasMore: Bool
+    }
+
+    static func search(query: String, page: Int = 1) async throws -> SearchPage {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw SoundboardError.badQuery }
+        let pageNumber = max(1, page)
 
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&=?")
-        let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: allowed) ?? trimmed
-        guard let url = URL(string: searchBase + encoded) else { throw SoundboardError.badQuery }
+        guard var components = URLComponents(string: "https://www.myinstants.com/en/search/") else {
+            throw SoundboardError.badQuery
+        }
+        components.queryItems = [
+            URLQueryItem(name: "name", value: trimmed),
+            URLQueryItem(name: "page", value: String(pageNumber)),
+        ]
+        guard let url = components.url else { throw SoundboardError.badQuery }
 
         var request = URLRequest(url: url)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
@@ -52,8 +64,17 @@ enum SoundboardImporter {
         }
 
         let clips = parse(html: html)
-        guard !clips.isEmpty else { throw SoundboardError.parseFailed }
-        return clips
+        if clips.isEmpty {
+            if pageNumber > 1 {
+                return SearchPage(clips: [], page: pageNumber, hasMore: false)
+            }
+            throw SoundboardError.parseFailed
+        }
+        return SearchPage(
+            clips: clips,
+            page: pageNumber,
+            hasMore: clips.count >= fullPageThreshold
+        )
     }
 
     static func download(_ clip: SoundboardClip, into directory: URL) async throws -> URL {
@@ -102,7 +123,7 @@ enum SoundboardImporter {
                 let fileName = String(html[fileRange])
                 guard !seen.contains(fileName) else { return }
                 seen.insert(fileName)
-                let title = String(html[titleRange])
+                let title = decodeHTMLEntities(String(html[titleRange]))
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard let audioURL = URL(string: mediaBase + fileName) else { return }
                 clips.append(
@@ -137,7 +158,51 @@ enum SoundboardImporter {
             }
         }
 
-        return Array(clips.prefix(40))
+        return clips
+    }
+
+    private static func decodeHTMLEntities(_ raw: String) -> String {
+        var text = raw
+        let named: [(String, String)] = [
+            ("&quot;", "\""),
+            ("&apos;", "'"),
+            ("&#39;", "'"),
+            ("&#x27;", "'"),
+            ("&amp;", "&"),
+            ("&lt;", "<"),
+            ("&gt;", ">"),
+            ("&nbsp;", " "),
+        ]
+        // Decode &amp; last among named? Ampersand must be last so we don't re-encode.
+        // Actually if we do &amp; first, &amp;quot; becomes &quot; then we need second pass.
+        // Order: named non-amp first, then numeric, then amp.
+        for (entity, replacement) in named where entity != "&amp;" {
+            text = text.replacingOccurrences(of: entity, with: replacement)
+        }
+
+        if let regex = try? NSRegularExpression(pattern: #"&#(\d+);"#) {
+            let ns = text as NSString
+            let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed()
+            for match in matches {
+                guard match.numberOfRanges > 1 else { continue }
+                let num = ns.substring(with: match.range(at: 1))
+                guard let value = UInt32(num), let scalar = UnicodeScalar(value) else { continue }
+                text = (text as NSString).replacingCharacters(in: match.range, with: String(Character(scalar)))
+            }
+        }
+        if let regex = try? NSRegularExpression(pattern: #"&#x([0-9a-fA-F]+);"#) {
+            let ns = text as NSString
+            let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed()
+            for match in matches {
+                guard match.numberOfRanges > 1 else { continue }
+                let hex = ns.substring(with: match.range(at: 1))
+                guard let value = UInt32(hex, radix: 16), let scalar = UnicodeScalar(value) else { continue }
+                text = (text as NSString).replacingCharacters(in: match.range, with: String(Character(scalar)))
+            }
+        }
+
+        text = text.replacingOccurrences(of: "&amp;", with: "&")
+        return text
     }
 
     private static func sanitizeFileName(_ name: String) -> String {

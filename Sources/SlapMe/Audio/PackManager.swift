@@ -77,10 +77,17 @@ final class PackManager: ObservableObject {
             }
             let files = audioFiles(in: dir)
             guard !files.isEmpty else { return nil }
-            let name = dir.lastPathComponent.replacingOccurrences(of: "-", with: " ").capitalized
+            let folderName = dir.lastPathComponent
+            let displayName: String
+            if category == .sfw, folderName.lowercased() == "default" {
+                displayName = "Default"
+            } else {
+                let name = folderName.replacingOccurrences(of: "-", with: " ").capitalized
+                displayName = "\(category.label): \(name)"
+            }
             return SoundPack(
-                id: "\(category.rawValue).\(dir.lastPathComponent)",
-                name: "\(category.label): \(name)",
+                id: "\(category.rawValue).\(folderName)",
+                name: displayName,
                 category: category,
                 files: files
             )
@@ -136,7 +143,9 @@ final class PackManager: ObservableObject {
                 packs.append(
                     SoundPack(
                         id: "sfw.user.\(dir.lastPathComponent)",
-                        name: "SFW: \(dir.lastPathComponent)",
+                        name: dir.lastPathComponent.lowercased() == "default"
+                            ? "Default"
+                            : "SFW: \(dir.lastPathComponent)",
                         category: .sfw,
                         files: files
                     )
