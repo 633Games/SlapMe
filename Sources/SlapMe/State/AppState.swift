@@ -289,6 +289,32 @@ final class AppState: ObservableObject {
         }
     }
 
+    enum SoundboardDestination {
+        case soundboard
+        case nsfw
+
+        var folderComponents: [String] {
+            switch self {
+            case .soundboard: return ["soundboard"]
+            case .nsfw: return ["nsfw", "soundboard"]
+            }
+        }
+
+        var packID: String {
+            switch self {
+            case .soundboard: return "custom.soundboard"
+            case .nsfw: return "nsfw.user.soundboard"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .soundboard: return "Custom: soundboard"
+            case .nsfw: return "NSFW: soundboard"
+            }
+        }
+    }
+
     func previewSoundboardClip(_ clip: SoundboardClip) {
         if previewingClipID == clip.id {
             audioEngine.stopPreview()
@@ -299,7 +325,7 @@ final class AppState: ObservableObject {
         muted = false
         audioEngine.previewRemote(url: clip.audioURL, volume: masterVolume)
         previewingClipID = clip.id
-        soundboardNote = "Previewing \(clip.title) — Add to keep it"
+        soundboardNote = "Previewing \(clip.title) — green Add = soundboard, red Add = NSFW"
         statusMessage = "Preview: \(clip.title)"
     }
 
@@ -308,23 +334,29 @@ final class AppState: ObservableObject {
         previewingClipID = nil
     }
 
-    func downloadSoundboardClip(_ clip: SoundboardClip) {
+    func downloadSoundboardClip(_ clip: SoundboardClip, to destination: SoundboardDestination) {
         stopSoundboardPreview()
         isDownloadingSoundboard = true
-        soundboardNote = "Downloading \(clip.title)…"
+        soundboardNote = "Downloading \(clip.title) → \(destination.label)…"
 
         Task {
             do {
-                let dir = Paths.customPacksDirectory.appendingPathComponent("soundboard", isDirectory: true)
+                var dir = Paths.customPacksDirectory
+                for component in destination.folderComponents {
+                    dir = dir.appendingPathComponent(component, isDirectory: true)
+                }
                 let url = try await SoundboardImporter.download(clip, into: dir)
                 await MainActor.run {
+                    if destination == .nsfw {
+                        self.nsfwEnabled = true
+                    }
                     self.isDownloadingSoundboard = false
                     self.reloadPacks()
-                    if self.packs.contains(where: { $0.id == "custom.soundboard" }) {
-                        self.selectedPackID = "custom.soundboard"
+                    if self.packs.contains(where: { $0.id == destination.packID }) {
+                        self.selectedPackID = destination.packID
                     }
-                    self.soundboardNote = "Saved \(url.lastPathComponent) → Custom: soundboard"
-                    self.statusMessage = "Imported \(clip.title)"
+                    self.soundboardNote = "Saved \(url.lastPathComponent) → \(destination.label)"
+                    self.statusMessage = "Imported \(clip.title) → \(destination.label)"
                 }
             } catch {
                 await MainActor.run {
@@ -336,16 +368,19 @@ final class AppState: ObservableObject {
         }
     }
 
-    func downloadTopSoundboardResults(limit: Int = 5) {
+    func downloadTopSoundboardResults(limit: Int = 5, to destination: SoundboardDestination = .soundboard) {
         stopSoundboardPreview()
         let clips = Array(soundboardResults.prefix(limit))
         guard !clips.isEmpty else { return }
         isDownloadingSoundboard = true
-        soundboardNote = "Downloading \(clips.count) clips…"
+        soundboardNote = "Downloading \(clips.count) clips → \(destination.label)…"
 
         Task {
             var ok = 0
-            let dir = Paths.customPacksDirectory.appendingPathComponent("soundboard", isDirectory: true)
+            var dir = Paths.customPacksDirectory
+            for component in destination.folderComponents {
+                dir = dir.appendingPathComponent(component, isDirectory: true)
+            }
             for clip in clips {
                 do {
                     _ = try await SoundboardImporter.download(clip, into: dir)
@@ -355,12 +390,15 @@ final class AppState: ObservableObject {
                 }
             }
             await MainActor.run {
+                if destination == .nsfw {
+                    self.nsfwEnabled = true
+                }
                 self.isDownloadingSoundboard = false
                 self.reloadPacks()
-                if self.packs.contains(where: { $0.id == "custom.soundboard" }) {
-                    self.selectedPackID = "custom.soundboard"
+                if self.packs.contains(where: { $0.id == destination.packID }) {
+                    self.selectedPackID = destination.packID
                 }
-                self.soundboardNote = "Imported \(ok)/\(clips.count) into Custom: soundboard"
+                self.soundboardNote = "Imported \(ok)/\(clips.count) into \(destination.label)"
                 self.statusMessage = self.soundboardNote ?? ""
             }
         }

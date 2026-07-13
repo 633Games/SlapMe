@@ -143,10 +143,15 @@ struct MenuBarView: View {
 
             if !appState.soundboardResults.isEmpty {
                 HStack {
-                    Button("Download top 5") {
-                        appState.downloadTopSoundboardResults(limit: 5)
+                    Button("Top 5 → soundboard") {
+                        appState.downloadTopSoundboardResults(limit: 5, to: .soundboard)
                     }
                     .disabled(appState.isDownloadingSoundboard)
+                    Button("Top 5 → NSFW") {
+                        appState.downloadTopSoundboardResults(limit: 5, to: .nsfw)
+                    }
+                    .disabled(appState.isDownloadingSoundboard)
+                    .foregroundStyle(.red)
                     if appState.previewingClipID != nil {
                         Button("Stop preview") {
                             appState.stopSoundboardPreview()
@@ -155,6 +160,10 @@ struct MenuBarView: View {
                     Spacer()
                 }
                 .font(.caption)
+
+                Text("Green Add = soundboard · Red Add = NSFW pack")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
 
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(appState.soundboardResults.prefix(12)) { clip in
@@ -168,10 +177,21 @@ struct MenuBarView: View {
                             }
                             .font(.caption2)
                             .disabled(appState.isDownloadingSoundboard)
+
                             Button("Add") {
-                                appState.downloadSoundboardClip(clip)
+                                appState.downloadSoundboardClip(clip, to: .soundboard)
                             }
                             .font(.caption2)
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                            .disabled(appState.isDownloadingSoundboard)
+
+                            Button("Add") {
+                                appState.downloadSoundboardClip(clip, to: .nsfw)
+                            }
+                            .font(.caption2)
+                            .buttonStyle(.borderedProminent)
+                            .tint(.red)
                             .disabled(appState.isDownloadingSoundboard)
                         }
                     }
