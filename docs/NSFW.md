@@ -52,7 +52,10 @@ Prefer **Add…** in **Sound Downloader** and tick **Save as NSFW pack** (saves 
 
 Or create folders manually:
 
----
+```bash
+mkdir -p "$HOME/Library/Application Support/SlapMe/Packs/nsfw/my-pack"
+# copy mp3/wav files in, then Enable NSFW packs → Reload packs
+```
 
 ## Bundled audio
 
@@ -62,7 +65,7 @@ SlapMe ships **one** default SFW slap clip only:
 Sources/SlapMe/Resources/Packs/sfw/default/slap.wav
 ```
 
-There is **no** default NSFW pack in the repo or app. NSFW is entirely user-provided under Application Support (or MyInstants **red Add**).
+There is **no** default NSFW pack in the repo or app. NSFW is entirely user-provided under Application Support (folder layout or Sound Downloader with **Save as NSFW pack**).
 
 Developers who want a bundled NSFW pack for testing can add:
 
